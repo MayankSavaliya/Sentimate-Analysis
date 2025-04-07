@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentiment Analysis</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 700px;
+            padding: 30px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .input-area {
+            margin-bottom: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            resize: none;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: block;
+            margin: 0 auto;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #3367d6;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 5px;
+            display: none;
+        }
+        .positive {
+            background-color: rgba(76, 175, 80, 0.1);
+            border: 1px solid #4CAF50;
+        }
+        .negative {
+            background-color: rgba(244, 67, 54, 0.1);
+            border: 1px solid #F44336;
+        }
+        .neutral {
+            background-color: rgba(255, 152, 0, 0.1);
+            border: 1px solid #FF9800;
+        }
+        .result h3 {
+            margin-top: 0;
+        }
+        .confidence-bar {
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .confidence-level {
+            height: 100%;
+            background-color: #4285f4;
+            border-radius: 10px;
+            transition: width 0.5s;
+        }
+        .loading {
+            text-align: center;
+            display: none;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sentiment Analysis</h1>
+        
+        <div class="input-area">
+            <textarea id="text-input" placeholder="Enter text to analyze sentiment..."></textarea>
+        </div>
+        
+        <button onclick="analyzeSentiment()">Analyze Sentiment</button>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Analyzing sentiment...</p>
+        </div>
+        
+        <div class="result" id="result">
+            <h3>Analysis Result</h3>
+            <p><strong>Sentiment:</strong> <span id="sentiment-result"></span></p>
+            <p><strong>Confidence:</strong> <span id="confidence-result"></span>%</p>
+            <div class="confidence-bar">
+                <div class="confidence-level" id="confidence-bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function analyzeSentiment() {
+            const text = document.getElementById('text-input').value.trim();
+            
+            if (!text) {
+                alert('Please enter some text to analyze');
+                return;
+            }
+            
+            // Show loading indicator
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+            
+            fetch('/predict', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text: text })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Hide loading indicator
+                document.getElementById('loading').style.display = 'none';
+                
+                // Update result
+                const resultDiv = document.getElementById('result');
+                const sentimentResult = document.getElementById('sentiment-result');
+                const confidenceResult = document.getElementById('confidence-result');
+                const confidenceBar = document.getElementById('confidence-bar');
+                
+                // Remove previous classes
+                resultDiv.classList.remove('positive', 'negative', 'neutral');
+                
+                // Add appropriate class based on sentiment
+                const sentiment = data.sentiment.toLowerCase();
+                if (sentiment.includes('positive')) {
+                    resultDiv.classList.add('positive');
+                } else if (sentiment.includes('negative')) {
+                    resultDiv.classList.add('negative');
+                } else {
+                    resultDiv.classList.add('neutral');
+                }
+                
+                // Update text content
+                sentimentResult.textContent = data.sentiment;
+                
+                // Format confidence as percentage
+                const confidencePercent = Math.round(data.confidence * 100);
+                confidenceResult.textContent = confidencePercent;
+                
+                // Update confidence bar
+                confidenceBar.style.width = `${confidencePercent}%`;
+                
+                // Show result
+                resultDiv.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('loading').style.display = 'none';
+                alert('An error occurred while analyzing sentiment. Please try again.');
+            });
+        }
+    </script>
+</body>
+</html>
