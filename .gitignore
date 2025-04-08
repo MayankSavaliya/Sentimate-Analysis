@@ -17,11 +17,11 @@ ENV/
 .ipynb_checkpoints
 
 # Model files and data
-models/saved_model/
-models/*.keras
-models/*.pickle
-models/*.png
-models/*.txt
+# models/saved_model/
+# models/*.keras
+# models/*.pickle
+# models/*.png
+# models/*.txt
 # data/*.csv
 
 # OS specific
