@@ -1,55 +1,69 @@
 import os
-import numpy as np
 import pickle
+import numpy as np
 import tensorflow as tf
+from tensorflow import keras
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+import gc
+
+# Global cache to prevent reloading model repeatedly
+_model_cache = None
+_tokenizer_cache = None
+_metadata_cache = None
 
 def load_model():
-    """Load the trained model, tokenizer and metadata"""
+    """
+    Load the saved model and required files.
+    Implements memory optimization for deployment.
+    """
+    global _model_cache, _tokenizer_cache, _metadata_cache
+    
+    # Return cached model if available
+    if _model_cache is not None:
+        return _model_cache
+    
     try:
-        # Define file paths
+        # Configure TensorFlow for memory optimization
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        if gpus:
+            # Restrict TensorFlow to only use a portion of GPU memory
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+        
+        # Set memory limits
+        tf.config.experimental.set_virtual_device_configuration(
+            gpus[0],
+            [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=512)]
+        ) if gpus else None
+        
+        # Load model with memory optimization
         model_path = os.path.join('models', 'saved_model', 'model.keras')
-        tokenizer_path = os.path.join('models', 'tokenizer.pickle')
-        metadata_path = os.path.join('models', 'model_metadata.pickle')
         
-        # Debugging: Print current working directory and directory contents
-        print(f"Current working directory: {os.getcwd()}")
-        print(f"Directory contents: {os.listdir('.')}")
-        if os.path.exists('models'):
-            print(f"Models directory contents: {os.listdir('models')}")
-            if os.path.exists(os.path.join('models', 'saved_model')):
-                print(f"Saved model directory contents: {os.listdir(os.path.join('models', 'saved_model'))}")
+        # Load model with reduced precision
+        _model_cache = keras.models.load_model(
+            model_path, 
+            compile=False  # Don't compile to save memory
+        )
         
-        # Check if files exist
-        if not os.path.exists(model_path):
-            print(f"Error: Model file not found at {model_path}")
-            return None
-            
-        if not os.path.exists(tokenizer_path):
-            print(f"Error: Tokenizer file not found at {tokenizer_path}")
-            return None
-            
-        if not os.path.exists(metadata_path):
-            print(f"Error: Metadata file not found at {metadata_path}")
-            return None
-        
-        # Load model
-        model = tf.keras.models.load_model(model_path)
+        # Compile with minimal metrics
+        _model_cache.compile(
+            optimizer='adam',
+            loss='sparse_categorical_crossentropy',
+            metrics=['accuracy']
+        )
         
         # Load tokenizer
-        with open(tokenizer_path, 'rb') as handle:
-            tokenizer = pickle.load(handle)
+        with open('models/tokenizer.pickle', 'rb') as handle:
+            _tokenizer_cache = pickle.load(handle)
         
         # Load metadata
-        with open(metadata_path, 'rb') as handle:
-            metadata = pickle.load(handle)
+        with open('models/model_metadata.pickle', 'rb') as handle:
+            _metadata_cache = pickle.load(handle)
         
-        # Store tokenizer and metadata with the model for easy access
-        model.tokenizer = tokenizer
-        model.metadata = metadata
+        # Force garbage collection
+        gc.collect()
         
-        print("Model, tokenizer and metadata loaded successfully")
-        return model
+        return _model_cache
     
     except Exception as e:
         print(f"Error loading model: {str(e)}")
@@ -57,30 +71,47 @@ def load_model():
 
 def predict_sentiment(model, text):
     """
-    Predict sentiment for the given text using the loaded model
-    Returns the sentiment label and confidence score
+    Predict sentiment for given text.
+    Uses memory-efficient processing.
     """
+    global _tokenizer_cache, _metadata_cache
+    
     try:
-        # Access tokenizer and metadata from model
-        tokenizer = model.tokenizer
-        metadata = model.metadata
-        max_length = metadata['max_length']
-        index_to_label = metadata['index_to_label']
+        # Check if tokenizer and metadata are available
+        if _tokenizer_cache is None or _metadata_cache is None:
+            load_model()  # This will populate the caches
         
-        # Preprocess text
-        sequences = tokenizer.texts_to_sequences([text])
-        padded = pad_sequences(sequences, maxlen=max_length)
+        # Process input text
+        sequences = _tokenizer_cache.texts_to_sequences([text])
+        max_length = _metadata_cache['max_length']
+        padded_sequences = pad_sequences(sequences, maxlen=max_length)
         
-        # Make prediction
-        prediction = model.predict(padded, verbose=0)[0]
-        predicted_class = np.argmax(prediction)
-        confidence = prediction[predicted_class]
+        # Make prediction with smaller batch size
+        prediction = model.predict(padded_sequences, batch_size=1, verbose=0)
         
-        # Map index to label
-        sentiment_label = index_to_label.get(int(predicted_class), "Unknown")
+        # Get sentiment label
+        predicted_index = np.argmax(prediction, axis=1)[0]
+        confidence = float(prediction[0][predicted_index])
+        sentiment_label = _metadata_cache['index_to_label'][predicted_index]
+        
+        # Force garbage collection
+        gc.collect()
         
         return sentiment_label, confidence
     
     except Exception as e:
-        print(f"Error predicting sentiment: {str(e)}")
+        print(f"Error during prediction: {str(e)}")
         return "Error", 0.0
+
+def unload_model():
+    """
+    Explicitly unload model to free memory
+    """
+    global _model_cache, _tokenizer_cache, _metadata_cache
+    
+    _model_cache = None
+    _tokenizer_cache = None
+    _metadata_cache = None
+    
+    # Force garbage collection
+    gc.collect()
